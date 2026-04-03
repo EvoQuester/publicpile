@@ -1,11 +1,8 @@
 import { useEffect, useState, useRef } from "react";
 import io from "socket.io-client";
 import axios from "axios";
-// 1. IMPORT GOOGLE OAUTH COMPONENTS
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 
-// --- CLOUD CONFIGURATION ---
-// This variable automatically switches between your live Render server and localhost
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 const socket = io.connect(API_BASE_URL);
 
@@ -21,11 +18,18 @@ function App() {
   const [chat, setChat] = useState([]);
   const [activeUsers, setActiveUsers] = useState([]);
   const [enlargedMedia, setEnlargedMedia] = useState(null);
-
-  // --- STATES FOR CUSTOM USERNAME PROMPT ---
   const [showUsernamePrompt, setShowUsernamePrompt] = useState(false);
   const [tempToken, setTempToken] = useState(null);
   const [customUsername, setCustomUsername] = useState("");
+
+  // --- MOBILE VIEW LOGIC ---
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const messagesEndRef = useRef(null);
 
@@ -34,7 +38,6 @@ function App() {
     if (savedUser) { setUsername(savedUser); setIsJoined(true); }
   }, []);
 
-  // --- AUDIO FIX: Mute background videos when modal opens ---
   useEffect(() => {
     const chatVideos = document.querySelectorAll(".chat-video");
     if (enlargedMedia) {
@@ -75,17 +78,12 @@ function App() {
     }
   };
 
-  // --- STANDARD AUTH HANDLER ---
   const handleAuth = async () => {
     setError("");
     try {
       if (authMode === "signup") {
-        // --- EMAIL VALIDATION FIX ---
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-          return setError("Please enter a valid email address (e.g., name@gmail.com)");
-        }
-        // ---------------------------
+        if (!emailRegex.test(email)) return setError("Valid email required.");
         const res = await axios.post(`${API_BASE_URL}/register`, { username, email, password });
         alert(res.data.message);
         setAuthMode("login");
@@ -94,47 +92,24 @@ function App() {
         localStorage.setItem("publicPileUser", res.data.username);
         setIsJoined(true);
       }
-    } catch (err) { 
-        setError(err.response?.data?.error || "Connection Error"); 
-    }
+    } catch (err) { setError(err.response?.data?.error || "Connection Error"); }
   };
 
-  // --- GOOGLE LOGIN SUCCESS HANDLER ---
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
-      const res = await axios.post(`${API_BASE_URL}/auth/google`, {
-        token: credentialResponse.credential,
-      });
-
-      if (res.data.newUser) {
-        setTempToken(credentialResponse.credential);
-        setShowUsernamePrompt(true);
-      } else {
-        localStorage.setItem("publicPileUser", res.data.username);
-        setUsername(res.data.username);
-        setIsJoined(true);
-      }
-    } catch (err) {
-      setError(err.response?.data?.error || "Google Login Failed");
-    }
+      const res = await axios.post(`${API_BASE_URL}/auth/google`, { token: credentialResponse.credential });
+      if (res.data.newUser) { setTempToken(credentialResponse.credential); setShowUsernamePrompt(true); }
+      else { localStorage.setItem("publicPileUser", res.data.username); setUsername(res.data.username); setIsJoined(true); }
+    } catch (err) { setError(err.response?.data?.error || "Google Login Failed"); }
   };
 
-  // --- SUBMIT CUSTOM USERNAME HANDLER ---
   const submitCustomUsername = async () => {
     if (!customUsername) return setError("Please enter a username");
-    setError("");
     try {
-      const res = await axios.post(`${API_BASE_URL}/auth/google`, {
-        token: tempToken,
-        chosenUsername: customUsername
-      });
+      const res = await axios.post(`${API_BASE_URL}/auth/google`, { token: tempToken, chosenUsername: customUsername });
       localStorage.setItem("publicPileUser", res.data.username);
-      setUsername(res.data.username);
-      setIsJoined(true);
-      setShowUsernamePrompt(false);
-    } catch (err) {
-      setError(err.response?.data?.error || "Error saving username");
-    }
+      setUsername(res.data.username); setIsJoined(true); setShowUsernamePrompt(false);
+    } catch (err) { setError(err.response?.data?.error || "Error saving username"); }
   };
 
   const sendMessage = () => {
@@ -146,66 +121,41 @@ function App() {
 
   return (
     <GoogleOAuthProvider clientId="482124776342-8161maq31o64v1tbn7kjem69tpnqdqcj.apps.googleusercontent.com">
-      <div style={styles.container}>
-        <div style={styles.sidebar}>
+      <div style={{...styles.container, flexDirection: isMobile ? 'column' : 'row'}}>
+        
+        {/* --- RESPONSIVE SIDEBAR --- */}
+        <div style={{...styles.sidebar, width: isMobile ? '100%' : '240px', height: isMobile ? 'auto' : '100vh'}}>
           <h1 style={styles.logo}>PublicPile</h1>
-          <p style={styles.tagline}>The Digital Bonfire</p>
+          {!isMobile && <p style={styles.tagline}>The Digital Bonfire</p>}
           {isJoined && <button onClick={() => {localStorage.clear(); window.location.reload();}} style={styles.logoutBtn}>Logout</button>}
         </div>
 
         <div style={styles.mainArea}>
           {!isJoined ? (
             <div style={styles.authCenter}>
-              <div style={styles.authCard}>
+              <div style={{...styles.authCard, width: isMobile ? '90%' : '400px'}}>
                 {!showUsernamePrompt ? (
                   <>
                     <div style={styles.tabs}>
                       <button style={authMode === 'login' ? styles.activeTab : styles.tab} onClick={() => setAuthMode("login")}>Login</button>
                       <button style={authMode === 'signup' ? styles.activeTab : styles.tab} onClick={() => setAuthMode("signup")}>Sign Up</button>
                     </div>
-                    
                     <input placeholder="Username" style={styles.input} value={username} onChange={(e) => setUsername(e.target.value)} />
-                    
-                    {authMode === "signup" && (
-                      <input type="email" placeholder="Email Address" style={styles.input} value={email} onChange={(e) => setEmail(e.target.value)} />
-                    )}
-                    
+                    {authMode === "signup" && <input type="email" placeholder="Email" style={styles.input} value={email} onChange={(e) => setEmail(e.target.value)} />}
                     <input type="password" placeholder="Password" style={styles.input} value={password} onChange={(e) => setPassword(e.target.value)} />
-                    
                     {error && <p style={styles.error}>{error}</p>}
-                    
                     <button onClick={handleAuth} style={styles.primaryBtn}>Enter</button>
-
                     <div style={styles.googleWrapper}>
                       <div style={styles.divider}><span>OR</span></div>
-                      <GoogleLogin
-                        onSuccess={handleGoogleSuccess}
-                        onError={() => setError("Google Login Failed")}
-                        theme="filled_blue"
-                        width="100%"
-                      />
+                      <GoogleLogin onSuccess={handleGoogleSuccess} onError={() => setError("Google Login Failed")} theme="filled_blue" width="100%" />
                     </div>
                   </>
                 ) : (
                   <>
-                    <h3 style={{ color: '#fff', marginBottom: '15px' }}>Choose your Pile name</h3>
-                    <p style={{ fontSize: '0.8rem', color: '#b9bbbe', marginBottom: '20px' }}>
-                      Welcome! Tell everyone what to call you.
-                    </p>
-                    <input 
-                      placeholder="Enter a handle..." 
-                      style={styles.input} 
-                      value={customUsername} 
-                      onChange={(e) => setCustomUsername(e.target.value)} 
-                    />
+                    <h3>Choose your Pile name</h3>
+                    <input placeholder="Handle..." style={styles.input} value={customUsername} onChange={(e) => setCustomUsername(e.target.value)} />
                     {error && <p style={styles.error}>{error}</p>}
-                    <button onClick={submitCustomUsername} style={styles.primaryBtn}>Finish Signing Up</button>
-                    <button 
-                      onClick={() => setShowUsernamePrompt(false)} 
-                      style={{ ...styles.tab, marginTop: '10px', fontSize: '0.8rem', width: '100%' }}
-                    >
-                      Cancel
-                    </button>
+                    <button onClick={submitCustomUsername} style={styles.primaryBtn}>Finish</button>
                   </>
                 )}
               </div>
@@ -223,9 +173,9 @@ function App() {
                           {msg.text && <div style={styles.msgText}>{msg.text}</div>}
                           {msg.image && (
                             msg.image.startsWith("data:video") ? (
-                              <video src={msg.image} controls className="chat-video" muted={!!enlargedMedia} style={styles.sharedVideo} onClick={(e) => { e.target.pause(); setEnlargedMedia(msg.image); }} />
+                              <video src={msg.image} controls className="chat-video" style={{...styles.sharedMedia, maxWidth: isMobile ? '100%' : '400px'}} />
                             ) : (
-                              <img src={msg.image} alt="sent" style={styles.sharedImage} onClick={() => setEnlargedMedia(msg.image)} />
+                              <img src={msg.image} alt="sent" style={{...styles.sharedMedia, maxWidth: isMobile ? '100%' : '400px'}} onClick={() => setEnlargedMedia(msg.image)} />
                             )
                           )}
                       </div>
@@ -242,16 +192,20 @@ function App() {
                   <div style={styles.inputWrapper}>
                       <input type="file" accept="image/*,video/*" id="file-input" style={{ display: 'none' }} onChange={handleFileSelect} />
                       <label htmlFor="file-input" style={styles.fileLabel}>📁</label>
-                      <input value={message} style={styles.chatInput} onChange={(e) => setMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} placeholder="Message #public-pile" />
+                      <input value={message} style={styles.chatInput} onChange={(e) => setMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} placeholder="Message..." />
                   </div>
                   </div>
               </div>
-              <div style={styles.userPanel}>
-                  <h3 style={styles.panelTitle}>Online — {activeUsers.length}</h3>
-                  <div style={styles.userList}>
-                      {activeUsers.map((user, idx) => ( <div key={idx} style={styles.userItem}><span style={styles.statusDot}></span>{user}</div> ))}
-                  </div>
-              </div>
+              
+              {/* --- HIDE USER PANEL ON MOBILE --- */}
+              {!isMobile && (
+                <div style={styles.userPanel}>
+                    <h3 style={styles.panelTitle}>Online — {activeUsers.length}</h3>
+                    <div style={styles.userList}>
+                        {activeUsers.map((user, idx) => ( <div key={idx} style={styles.userItem}><span style={styles.statusDot}></span>{user}</div> ))}
+                    </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -270,45 +224,44 @@ function App() {
 }
 
 const styles = {
-  container: { display: 'flex', height: '100vh', backgroundColor: '#36393f', color: '#dcddde', fontFamily: 'sans-serif' },
-  sidebar: { width: '240px', backgroundColor: '#2f3136', padding: '20px', display: 'flex', flexDirection: 'column' },
-  logo: { fontSize: '1.5rem', color: '#fff', margin: 0 },
-  tagline: { fontSize: '0.8rem', color: '#8e9297', marginBottom: '20px' },
-  mainArea: { flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' },
-  authCenter: { display: 'flex', flex: 1, justifyContent: 'center', alignItems: 'center' },
-  authCard: { backgroundColor: '#36393f', padding: '32px', borderRadius: '8px', width: '400px', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' },
+  container: { display: 'flex', height: '100vh', backgroundColor: '#36393f', color: '#dcddde', fontFamily: 'sans-serif', overflow: 'hidden' },
+  sidebar: { backgroundColor: '#2f3136', padding: '15px', display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', boxSizing: 'border-box' },
+  logo: { fontSize: '1.2rem', color: '#fff', margin: 0 },
+  tagline: { fontSize: '0.8rem', color: '#8e9297' },
+  mainArea: { flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' },
+  authCenter: { display: 'flex', flex: 1, justifyContent: 'center', alignItems: 'center', padding: '20px' },
+  authCard: { backgroundColor: '#36393f', padding: '25px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.2)', boxSizing: 'border-box' },
   tabs: { display: 'flex', gap: '15px', marginBottom: '20px' },
   tab: { background: 'none', border: 'none', color: '#b9bbbe', cursor: 'pointer', fontSize: '1rem' },
   activeTab: { background: 'none', border: 'none', color: '#fff', borderBottom: '2px solid #5865f2', cursor: 'pointer', fontSize: '1rem', fontWeight: 'bold' },
   input: { width: '100%', padding: '12px', marginBottom: '15px', backgroundColor: '#202225', border: 'none', color: '#fff', borderRadius: '3px', boxSizing: 'border-box' },
-  primaryBtn: { width: '100%', padding: '12px', backgroundColor: '#5865f2', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '3px', boxSizing: 'border-box' },
+  primaryBtn: { width: '100%', padding: '12px', backgroundColor: '#5865f2', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '3px' },
   error: { color: '#f04747', fontSize: '0.8rem', marginBottom: '10px' },
-  googleWrapper: { marginTop: '20px', textAlign: 'center' },
+  googleWrapper: { marginTop: '20px' },
   divider: { display: 'flex', alignItems: 'center', color: '#8e9297', fontSize: '0.7rem', margin: '15px 0' },
-  chatContainer: { display: 'flex', flexDirection: 'column', flex: 1, height: '100%' },
-  chatBox: { flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px', alignItems: 'flex-start' },
-  msgLine: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '100%' },
+  chatContainer: { display: 'flex', flexDirection: 'column', flex: 1, height: '100%', overflow: 'hidden' },
+  chatBox: { flex: 1, overflowY: 'auto', padding: '15px', display: 'flex', flexDirection: 'column', gap: '12px' },
+  msgLine: { display: 'flex', flexDirection: 'column', width: '100%' },
   msgHeader: { display: 'flex', alignItems: 'center', marginBottom: '4px' },
-  deleteBtn: { marginLeft: '12px', background: 'none', border: 'none', color: '#f04747', fontSize: '0.7rem', cursor: 'pointer', opacity: 0.6 },
-  msgText: { color: '#dcddde', lineHeight: '1.4' },
-  sharedImage: { maxWidth: '400px', maxHeight: '400px', borderRadius: '8px', marginTop: '8px', border: '1px solid #202225', cursor: 'zoom-in' },
-  sharedVideo: { maxWidth: '400px', borderRadius: '8px', marginTop: '8px', border: '1px solid #202225', cursor: 'pointer' },
-  inputArea: { padding: '20px' },
-  previewContainer: { position: 'relative', display: 'inline-block', marginBottom: '10px', backgroundColor: '#2f3136', padding: '10px', borderRadius: '8px' },
-  previewImage: { height: '80px', borderRadius: '4px' },
-  cancelImg: { position: 'absolute', top: '0', right: '0', background: '#f04747', color: 'white', border: 'none', borderRadius: '50%', cursor: 'pointer', width: '20px', height: '20px' },
-  inputWrapper: { backgroundColor: '#40444b', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'center' },
-  fileLabel: { cursor: 'pointer', marginRight: '12px', fontSize: '1.2rem' },
-  chatInput: { flex: 1, border: 'none', background: 'none', color: '#fff', outline: 'none', fontSize: '1rem' },
-  logoutBtn: { marginTop: 'auto', padding: '10px', backgroundColor: '#f04747', border: 'none', color: '#fff', cursor: 'pointer', borderRadius: '3px' },
-  userPanel: { width: '240px', backgroundColor: '#2f3136', padding: '20px', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #202225' },
-  panelTitle: { fontSize: '0.75rem', textTransform: 'uppercase', color: '#8e9297', marginBottom: '20px', letterSpacing: '0.5px', fontWeight: 'bold' },
-  userList: { display: 'flex', flexDirection: 'column', gap: '10px' },
-  userItem: { display: 'flex', alignItems: 'center', color: '#b9bbbe', fontSize: '0.95rem', cursor: 'default' },
-  statusDot: { width: '8px', height: '8px', backgroundColor: '#3ba55e', borderRadius: '50%', marginRight: '12px' },
-  modalOverlay: { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0, 0, 0, 0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, cursor: 'zoom-out' },
-  modalImage: { maxWidth: '90%', maxHeight: '90%', borderRadius: '4px', boxShadow: '0 5px 30px rgba(0,0,0,0.5)', cursor: 'default' },
-  closeModal: { position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', color: '#fff', fontSize: '2rem', cursor: 'pointer', zIndex: 1001 }
+  deleteBtn: { marginLeft: '10px', background: 'none', border: 'none', color: '#f04747', fontSize: '0.7rem', cursor: 'pointer' },
+  msgText: { color: '#dcddde', wordBreak: 'break-word' },
+  sharedMedia: { borderRadius: '8px', marginTop: '8px', border: '1px solid #202225', cursor: 'pointer' },
+  inputArea: { padding: '15px', backgroundColor: '#36393f' },
+  previewContainer: { position: 'relative', display: 'inline-block', marginBottom: '10px', backgroundColor: '#2f3136', padding: '5px', borderRadius: '5px' },
+  previewImage: { height: '60px', borderRadius: '4px' },
+  cancelImg: { position: 'absolute', top: '-5px', right: '-5px', background: '#f04747', color: 'white', border: 'none', borderRadius: '50%', cursor: 'pointer', width: '18px', height: '18px', fontSize: '10px' },
+  inputWrapper: { backgroundColor: '#40444b', borderRadius: '8px', padding: '10px', display: 'flex', alignItems: 'center' },
+  fileLabel: { cursor: 'pointer', marginRight: '10px', fontSize: '1.2rem' },
+  chatInput: { flex: 1, border: 'none', background: 'none', color: '#fff', outline: 'none', fontSize: '0.9rem' },
+  logoutBtn: { padding: '8px 12px', backgroundColor: '#f04747', border: 'none', color: '#fff', cursor: 'pointer', borderRadius: '3px', fontSize: '0.8rem' },
+  userPanel: { width: '200px', backgroundColor: '#2f3136', padding: '15px', borderLeft: '1px solid #202225' },
+  panelTitle: { fontSize: '0.7rem', color: '#8e9297', marginBottom: '15px', fontWeight: 'bold' },
+  userList: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  userItem: { display: 'flex', alignItems: 'center', color: '#b9bbbe', fontSize: '0.85rem' },
+  statusDot: { width: '6px', height: '6px', backgroundColor: '#3ba55e', borderRadius: '50%', marginRight: '10px' },
+  modalOverlay: { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
+  modalImage: { maxWidth: '95%', maxHeight: '95%' },
+  closeModal: { position: 'absolute', top: '15px', right: '15px', background: 'none', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer' }
 };
 
 export default App;
