@@ -4,7 +4,10 @@ import axios from "axios";
 // 1. IMPORT GOOGLE OAUTH COMPONENTS
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 
-const socket = io.connect("http://localhost:5000");
+// --- CLOUD CONFIGURATION ---
+// This variable automatically switches between your live Render server and localhost
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const socket = io.connect(API_BASE_URL);
 
 function App() {
   const [username, setUsername] = useState("");
@@ -83,11 +86,11 @@ function App() {
           return setError("Please enter a valid email address (e.g., name@gmail.com)");
         }
         // ---------------------------
-        const res = await axios.post("http://localhost:5000/register", { username, email, password });
+        const res = await axios.post(`${API_BASE_URL}/register`, { username, email, password });
         alert(res.data.message);
         setAuthMode("login");
       } else if (authMode === "login") {
-        const res = await axios.post("http://localhost:5000/login", { username, password });
+        const res = await axios.post(`${API_BASE_URL}/login`, { username, password });
         localStorage.setItem("publicPileUser", res.data.username);
         setIsJoined(true);
       }
@@ -99,7 +102,7 @@ function App() {
   // --- GOOGLE LOGIN SUCCESS HANDLER ---
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
-      const res = await axios.post("http://localhost:5000/auth/google", {
+      const res = await axios.post(`${API_BASE_URL}/auth/google`, {
         token: credentialResponse.credential,
       });
 
@@ -121,7 +124,7 @@ function App() {
     if (!customUsername) return setError("Please enter a username");
     setError("");
     try {
-      const res = await axios.post("http://localhost:5000/auth/google", {
+      const res = await axios.post(`${API_BASE_URL}/auth/google`, {
         token: tempToken,
         chosenUsername: customUsername
       });

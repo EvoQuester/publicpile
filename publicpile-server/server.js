@@ -10,43 +10,48 @@ const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 
 const app = express();
-const SECRET_KEY = "public_pile_super_secret"; 
-const GOOGLE_CLIENT_ID = "482124776342-8161maq31o64v1tbn7kjem69tpnqdqcj.apps.googleusercontent.com";
+
+// --- ENVIRONMENT VARIABLES (Hiding secrets for the cloud) ---
+const SECRET_KEY = process.env.SECRET_KEY || "public_pile_super_secret"; 
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "482124776342-8161maq31o64v1tbn7kjem69tpnqdqcj.apps.googleusercontent.com";
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-app.use(cors());
+// Allow your future professional domain (publicpile.xyz) to connect
+app.use(cors({
+  origin: process.env.FRONTEND_URL || "http://localhost:5173"
+}));
+
 app.use(express.json({ limit: '150mb' })); 
 app.use(express.urlencoded({ limit: '150mb', extended: true }));
 
+// --- CLOUD DATABASE CONNECTION (Neon/Singapore) ---
 const pool = new Pool({
-  user: 'postgres',           
-  host: 'localhost',          
-  database: 'publicpile_db',  
-  password: 'postgres',       
-  port: 5432,                 
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false // This is mandatory for Neon/Render
+  }
 });
 
-// 1. CONFIGURE EMAIL TRANSPORTER
+// --- EMAIL TRANSPORTER (Using App Passwords) ---
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'jessehianchaykingramos@gmail.com', 
-    pass: 'qintordvmhmbvntc' 
+    user: process.env.EMAIL_USER || 'jessehianchaykingramos@gmail.com', 
+    pass: process.env.EMAIL_PASS || 'qintordvmhmbvntc' 
   }
 });
 
 // --- AUTH ROUTES ---
 
-// A. REGISTER ROUTE (Standard Email/Password)
+// A. REGISTER ROUTE (With Email Validation)
 app.post('/register', async (req, res) => {
   const { username, email, password } = req.body;
 
-  // --- SERVER-SIDE EMAIL VALIDATION FIX ---
+  // Server-side email format check
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email || !emailRegex.test(email)) {
     return res.status(400).json({ error: "A valid email address is required for verification." });
   }
-  // ----------------------------------------
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -57,7 +62,10 @@ app.post('/register', async (req, res) => {
       [username, email, hashedPassword, verificationToken]
     );
 
-    const verificationLink = `http://localhost:5000/verify-email/${verificationToken}`;
+    // Use environment variable for the link so it works on your live domain
+    const backendUrl = process.env.BACKEND_URL || "http://localhost:5000";
+    const verificationLink = `${backendUrl}/verify-email/${verificationToken}`;
+    
     const mailOptions = {
       from: 'PublicPile <jessehianchaykingramos@gmail.com>',
       to: email,
@@ -123,7 +131,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// D. UPDATED GOOGLE OAUTH ROUTE (WITH CUSTOM USERNAME PROMPT LOGIC)
+// D. GOOGLE OAUTH ROUTE (With Custom Username Prompt Logic)
 app.post('/auth/google', async (req, res) => {
   const { token, chosenUsername } = req.body;
   try {
@@ -135,23 +143,19 @@ app.post('/auth/google', async (req, res) => {
     const payload = ticket.getPayload();
     const email = payload['email'];
 
-    // 1. Check if user already exists
     let user = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
 
     if (user.rows.length === 0) {
-      // 2. If user doesn't exist and didn't provide a username yet, tell frontend to prompt
       if (!chosenUsername) {
         return res.json({ newUser: true });
       }
 
-      // 3. Check if the CUSTOM username is already taken
       const nameCheck = await pool.query('SELECT * FROM users WHERE username = $1', [chosenUsername]);
       if (nameCheck.rows.length > 0) {
         return res.status(400).json({ error: "That username is already taken!" });
       }
 
       try {
-        // 4. Create NEW user with the chosen username
         const result = await pool.query(
           'INSERT INTO users (username, email, is_verified) VALUES ($1, $2, TRUE) RETURNING username',
           [chosenUsername, email]
@@ -162,7 +166,6 @@ app.post('/auth/google', async (req, res) => {
         return res.status(500).json({ error: "Database could not save new Google user." });
       }
     } else {
-      // 5. User exists, mark as verified (since Google identity is confirmed)
       await pool.query('UPDATE users SET is_verified = TRUE WHERE email = $1', [email]);
     }
 
@@ -178,7 +181,7 @@ app.post('/auth/google', async (req, res) => {
 // --- SOCKET.IO LOGIC ---
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "http://localhost:5173", methods: ["GET", "POST"] },
+  cors: { origin: process.env.FRONTEND_URL || "http://localhost:5173", methods: ["GET", "POST"] },
   maxHttpBufferSize: 1.5e8 
 });
 
@@ -239,7 +242,7 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`SERVER RUNNING ON PORT ${PORT} (100MB LIMIT + EMAIL VERIFY + GOOGLE AUTH)`);
+  console.log(`SERVER RUNNING ON PORT ${PORT} (SSL + EMAIL VERIFY + GOOGLE AUTH READY)`);
 });
